@@ -1,0 +1,910 @@
+<!--
+Smart Parking Management System - Web Interface
+
+This HTML file provides the complete web-based user interface for the parking management system.
+It includes real-time visualization of parking slots, forms for requesting and releasing slots,
+receipt generation, and live status updates via WebSocket.
+
+Key Features:
+- Responsive Bootstrap 5 design with modern UI
+- Real-time parking lot visualization with color-coded slots
+- Interactive forms for slot allocation and release
+- PDF receipt generation using jsPDF
+- WebSocket integration for live updates
+- Mobile-friendly responsive layout
+- Animated transitions and hover effects
+
+Sections:
+- Header: System title and statistics cards
+- Request Form: Vehicle and customer type selection
+- Release Form: Ticket-based slot release
+- Parking Visualization: Interactive grid showing all slots
+- Receipts: Modal dialogs for allocation and release receipts
+- Status Updates: Real-time counters and slot status
+
+Dependencies:
+- Bootstrap 5: CSS framework for responsive design
+- Font Awesome: Icons for UI elements
+- Socket.IO: Real-time WebSocket communication
+- jsPDF: PDF receipt generation
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Parking Management System</title>
+
+    <!-- External CSS Libraries -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+
+    <!-- External JavaScript Libraries -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --success-color: #16a34a;
+            --danger-color: #dc2626;
+            --warning-color: #ca8a04;
+            --dark-color: #1f2937;
+            --light-color: #f9fafb;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .main-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            margin: 20px;
+            padding: 30px;
+        }
+
+        .header-section {
+            text-align: center;
+            margin-bottom: 30px;
+            color: var(--dark-color);
+        }
+
+        .header-section h1 {
+            font-weight: 700;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .stats-card {
+            background: linear-gradient(135deg, var(--primary-color), #3b82f6);
+            color: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 25px rgba(37, 99, 235, 0.3);
+            transition: transform 0.3s ease;
+        }
+
+        .stats-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stats-card h2 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 0;
+        }
+
+        .stats-card p {
+            margin: 5px 0 0 0;
+            opacity: 0.9;
+        }
+
+        .slot {
+            width: 70px;
+            height: 70px;
+            margin: 8px;
+            border: 3px solid #e5e7eb;
+            border-radius: 12px;
+            display: inline-block;
+            text-align: center;
+            line-height: 64px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .slot:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .slot.occupied {
+            background: linear-gradient(135deg, var(--danger-color), #ef4444);
+            color: white;
+            border-color: var(--danger-color);
+            animation: pulse 2s infinite;
+        }
+
+        .slot.available {
+            background: linear-gradient(135deg, var(--success-color), #22c55e);
+            color: white;
+            border-color: var(--success-color);
+        }
+
+        .slot.expired {
+            background: linear-gradient(135deg, #7c2d12, #dc2626);
+            color: white;
+            border-color: #dc2626;
+            animation: shake 0.5s ease-in-out;
+        }
+
+        .slot.ev {
+            border-color: var(--warning-color);
+            box-shadow: 0 0 15px rgba(202, 138, 4, 0.5);
+        }
+
+        .slot.ev::after {
+            content: "⚡";
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            font-size: 18px;
+            color: var(--warning-color);
+        }
+
+        .vip-section {
+            background: linear-gradient(135deg, #fef3c7, #fde68a);
+            border: 2px solid var(--warning-color);
+            border-radius: 15px;
+            margin-bottom: 25px;
+            padding: 15px;
+            box-shadow: 0 4px 15px rgba(202, 138, 4, 0.2);
+        }
+
+        .regular-section {
+            background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+            border: 2px solid #0ea5e9;
+            border-radius: 15px;
+            margin-bottom: 25px;
+            padding: 15px;
+            box-shadow: 0 4px 15px rgba(14, 165, 233, 0.2);
+        }
+
+        .ev-section {
+            background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+            border: 2px solid #16a34a;
+            border-radius: 15px;
+            margin-bottom: 25px;
+            padding: 15px;
+            box-shadow: 0 4px 15px rgba(22, 163, 74, 0.2);
+        }
+
+        .section-header {
+            font-weight: 700;
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .level-container {
+            margin-bottom: 40px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+
+        .form-container {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+
+        .btn-custom {
+            border-radius: 25px;
+            padding: 12px 30px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .btn-custom:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        .timer {
+            font-size: 0.9rem;
+            color: var(--danger-color);
+            font-weight: 600;
+        }
+
+        .receipt-modal .modal-content {
+            border-radius: 15px;
+            border: none;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+
+        .receipt-header {
+            background: linear-gradient(135deg, var(--primary-color), #3b82f6);
+            color: white;
+            padding: 20px;
+            border-radius: 15px 15px 0 0;
+            text-align: center;
+        }
+
+        .receipt-body {
+            padding: 30px;
+            background: var(--light-color);
+        }
+
+        .receipt-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .receipt-total {
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: var(--danger-color);
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+
+        @media (max-width: 768px) {
+            .slot {
+                width: 50px;
+                height: 50px;
+                margin: 5px;
+                line-height: 44px;
+                font-size: 12px;
+            }
+
+            .main-container {
+                margin: 10px;
+                padding: 20px;
+            }
+
+            .header-section h1 {
+                font-size: 2rem;
+            }
+        }
+
+        .alert-custom {
+            border-radius: 10px;
+            border: none;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <!--
+    Main Application Container
+    Contains the entire parking management interface with:
+    - Header with statistics cards
+    - Forms for requesting and releasing slots
+    - Real-time parking lot visualization
+    - Receipt modals
+    - Message alerts
+    -->
+    <div class="container-fluid main-container">
+        <!-- Header -->
+        <div class="header-section">
+            <h1><i class="fas fa-parking"></i> Smart Parking Management</h1>
+            <p class="lead">Advanced parking solution with real-time monitoring and automated billing</p>
+        </div>
+
+        <!-- Statistics -->
+        <div class="row mb-4">
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="stats-card">
+                    <h2 id="total-counter">0</h2>
+                    <p><i class="fas fa-parking"></i> Total Slots</p>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="stats-card">
+                    <h2 id="occupied-counter">0</h2>
+                    <p><i class="fas fa-car"></i> Occupied</p>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="stats-card">
+                    <h2 id="available-counter">0</h2>
+                    <p><i class="fas fa-check-circle"></i> Available</p>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="stats-card">
+                    <h2 id="expired-counter">0</h2>
+                    <p><i class="fas fa-exclamation-triangle"></i> Expired</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Rules and Policies -->
+        <div class="form-container mb-4">
+            <h3 class="text-center mb-4"><i class="fas fa-gavel"></i> Parking Rules & Policies</h3>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card border-primary mb-3">
+                        <div class="card-header bg-primary text-white">
+                            <i class="fas fa-clock"></i> Time Limits & Pricing
+                        </div>
+                        <div class="card-body">
+                            <div id="time-limits-content">
+                                <p class="text-muted">Loading rules...</p>
+                            </div>
+                            <div id="pricing-content" class="mt-3">
+                                <p class="text-muted">Loading pricing...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card border-warning mb-3">
+                        <div class="card-header bg-warning text-dark">
+                            <i class="fas fa-exclamation-triangle"></i> Restrictions & Policies
+                        </div>
+                        <div class="card-body">
+                            <div id="restrictions-content">
+                                <p class="text-muted">Loading restrictions...</p>
+                            </div>
+                            <div id="policies-content" class="mt-3">
+                                <p class="text-muted">Loading policies...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i>
+                <strong>Important:</strong> Please review all rules before parking. Violations may result in additional fees or suspension.
+            </div>
+        </div>
+
+        <!-- Request Form -->
+        <div class="form-container">
+            <h3 class="text-center mb-4"><i class="fas fa-plus-circle"></i> Request Parking Slot</h3>
+            <form id="request-form">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label for="vehicle_type" class="form-label fw-bold">
+                            <i class="fas fa-car"></i> Vehicle Type
+                        </label>
+                        <select class="form-select form-select-lg" id="vehicle_type" required>
+                            <option value="small">🚲 Small (Motorcycle)</option>
+                            <option value="medium">🚗 Medium (Car)</option>
+                            <option value="large">🚚 Large (Truck)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="customer_type" class="form-label fw-bold">
+                            <i class="fas fa-user"></i> Customer Type
+                        </label>
+                        <select class="form-select form-select-lg" id="customer_type" required>
+                            <option value="regular">👤 Regular</option>
+                            <option value="vip">⭐ VIP (Membership)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="license_plate" class="form-label fw-bold">
+                            <i class="fas fa-id-card"></i> License Plate
+                        </label>
+                        <input type="text" class="form-control form-control-lg" id="license_plate" placeholder="ABC-123" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="is_ev" class="form-label fw-bold">
+                            <i class="fas fa-charging-station"></i> EV Charging
+                        </label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="is_ev">
+                            <label class="form-check-label" for="is_ev">
+                                Required
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary btn-custom w-100">
+                            <i class="fas fa-search"></i> Find Slot
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Release Form -->
+        <div class="form-container">
+            <h3 class="text-center mb-4"><i class="fas fa-sign-out-alt"></i> Release Parking Slot</h3>
+            <form id="release-form">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label for="ticket" class="form-label fw-bold">
+                            <i class="fas fa-ticket-alt"></i> Ticket Number
+                        </label>
+                        <input type="text" class="form-control form-control-lg" id="ticket" placeholder="Enter your ticket number" required>
+                    </div>
+                    <div class="col-md-4 d-flex align-items-end">
+                        <button type="submit" class="btn btn-success btn-custom w-100">
+                            <i class="fas fa-check"></i> Release & Pay
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Messages -->
+        <div id="messages" class="mb-4"></div>
+
+        <!-- Parking Visualization -->
+        <div id="parking-lot"></div>
+    </div>
+
+    <!-- Receipt Modal -->
+    <div class="modal fade" id="receiptModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content receipt-modal">
+                <div class="modal-header receipt-header">
+                    <h5 class="modal-title" id="receiptTitle">Receipt</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body receipt-body" id="receiptContent">
+                    <!-- Receipt content will be inserted here -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" onclick="printReceipt()">
+                        <i class="fas fa-print"></i> Print Receipt
+                    </button>
+                    <button type="button" class="btn btn-success" onclick="downloadPDF()">
+                        <i class="fas fa-download"></i> Download PDF
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        /*
+        JavaScript Application Logic
+
+        This script handles the client-side functionality for the parking management system:
+        - WebSocket communication with the server
+        - Form submissions for slot requests and releases
+        - Real-time UI updates and status visualization
+        - Receipt generation and PDF download
+        - Message display and user feedback
+        - Automatic status refresh every 30 seconds
+
+        Key Functions:
+        - showMessage(): Display user notifications
+        - showReceipt(): Display receipt modals
+        - printReceipt(): Print receipts
+        - downloadPDF(): Generate PDF receipts
+        - updateVisualization(): Update parking lot display
+        - Socket event handlers for real-time updates
+        */
+
+        const socket = io();  // WebSocket connection to server
+        const messagesDiv = document.getElementById('messages');
+        let currentReceipt = null;
+        let currentRules = null;
+
+        function updateRulesDisplay(rules) {
+            currentRules = rules;
+
+            // Update time limits
+            document.getElementById('time-limits-content').innerHTML = rules.time_limits.replace(/\n/g, '<br>');
+
+            // Update pricing
+            document.getElementById('pricing-content').innerHTML = rules.pricing.replace(/\n/g, '<br>');
+
+            // Update restrictions
+            document.getElementById('restrictions-content').innerHTML = rules.restrictions.replace(/\n/g, '<br>');
+
+            // Update policies
+            document.getElementById('policies-content').innerHTML = rules.policies.replace(/\n/g, '<br>');
+        }
+
+        function copyQRCode(qrData) {
+            navigator.clipboard.writeText(qrData).then(() => {
+                showMessage('QR Code copied to clipboard!', 'success');
+            }).catch(() => {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = qrData;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                showMessage('QR Code copied to clipboard!', 'success');
+            });
+        }
+
+        function showMessage(message, type = 'info') {
+            const alertClass = `alert alert-${type} alert-custom`;
+            const alert = `<div class="${alertClass}" role="alert">
+                <i class="fas fa-info-circle me-2"></i>${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>`;
+            messagesDiv.innerHTML = alert + messagesDiv.innerHTML;
+            setTimeout(() => {
+                const alerts = messagesDiv.querySelectorAll('.alert');
+                if (alerts.length > 3) {
+                    alerts[alerts.length - 1].remove();
+                }
+            }, 5000);
+        }
+
+        function showReceipt(receipt) {
+            currentReceipt = receipt;
+            document.getElementById('receiptTitle').textContent = receipt.title;
+
+            let content = `<div class="text-center mb-4">
+                <h4>${receipt.title}</h4>
+                <p class="text-muted">Ticket: <strong>${receipt.ticket}</strong></p>
+            </div>`;
+
+            content += '<div class="receipt-details">';
+
+            if (receipt.title.includes('Allocation')) {
+                content += `
+                    <div class="receipt-item"><span>Slot ID:</span><strong>${receipt.slot_id}</strong></div>
+                    <div class="receipt-item"><span>Level:</span><strong>${receipt.level}</strong></div>
+                    <div class="receipt-item"><span>Section:</span><strong>${receipt.section.toUpperCase()}</strong></div>
+                    <div class="receipt-item"><span>Vehicle Type:</span><strong>${receipt.vehicle_type}</strong></div>
+                    <div class="receipt-item"><span>Customer Type:</span><strong>${receipt.customer_type}</strong></div>
+                    <div class="receipt-item"><span>License Plate:</span><strong>${receipt.license_plate}</strong></div>
+                    <div class="receipt-item"><span>EV Charging:</span><strong>${receipt.is_ev ? 'Yes' : 'No'}</strong></div>
+                    <div class="receipt-item"><span>Allocation Time:</span><strong>${receipt.allocation_time}</strong></div>
+                    <div class="receipt-item"><span>Expiry Time:</span><strong>${receipt.expiry_time}</strong></div>
+                    <div class="receipt-item"><span>Time Limit:</span><strong>${receipt.time_limit}</strong></div>
+                    <div class="receipt-item"><span>Pricing:</span><strong>${receipt.pricing_info}</strong></div>
+                    <div class="receipt-item"><span>Re-entry Fee:</span><strong>${receipt.re_entry_fee}</strong></div>
+                `;
+            } else {
+                content += `
+                    <div class="receipt-item"><span>Slot ID:</span><strong>${receipt.slot_id}</strong></div>
+                    <div class="receipt-item"><span>Vehicle Type:</span><strong>${receipt.vehicle_type}</strong></div>
+                    <div class="receipt-item"><span>Customer Type:</span><strong>${receipt.customer_type}</strong></div>
+                    <div class="receipt-item"><span>License Plate:</span><strong>${receipt.license_plate}</strong></div>
+                    <div class="receipt-item"><span>Allocation Time:</span><strong>${receipt.allocation_time}</strong></div>
+                    <div class="receipt-item"><span>Release Time:</span><strong>${receipt.release_time}</strong></div>
+                    <div class="receipt-item"><span>Duration:</span><strong>${receipt.duration_hours} hours</strong></div>
+                    <div class="receipt-item"><span>Base Fee:</span><strong>${receipt.base_fee}</strong></div>
+                    <div class="receipt-item"><span>Re-entry Fee:</span><strong>${receipt.re_entry_fee}</strong></div>
+                    <div class="receipt-item receipt-total"><span>Total Fee:</span><strong>${receipt.total_fee}</strong></div>
+                `;
+
+                if (receipt.overstay) {
+                    content += `<div class="alert alert-warning mt-3">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>Overstay Detected:</strong> Additional penalties may apply.
+                        ${receipt.penalty_info || ''}
+                    </div>`;
+                }
+
+                if (receipt.warnings_issued > 0) {
+                    content += `<div class="alert alert-danger mt-3">
+                        <i class="fas fa-exclamation-circle"></i>
+                        <strong>Warnings Issued:</strong> ${receipt.warnings_issued}
+                        ${receipt.warning_info || ''}
+                    </div>`;
+                }
+            }
+
+            content += '</div>';
+
+            // Rules summary
+            if (receipt.rules) {
+                content += `<div class="mt-4 p-3 bg-light rounded">
+                    <h6><i class="fas fa-gavel"></i> Parking Rules Summary:</h6>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>Time Limits:</strong><br>
+                            ${receipt.rules.time_limits.replace(/\n/g, '<br>')}
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Pricing:</strong><br>
+                            ${receipt.rules.pricing.replace(/\n/g, '<br>')}
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <strong>Restrictions:</strong><br>
+                        ${receipt.rules.restrictions.replace(/\n/g, '<br>')}
+                    </div>
+                </div>`;
+            }
+
+            // Functional QR Code
+            const qrData = receipt.qr_code;
+            content += `<div class="text-center mt-4">
+                <p class="text-muted mb-2">Scan QR Code for Digital Receipt</p>
+                <div id="qrcode" style="width: 120px; height: 120px; margin: 0 auto; background: #f8f9fa; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                    <i class="fas fa-qrcode fa-4x text-primary"></i>
+                </div>
+                <small class="text-muted mt-2 d-block">${qrData}</small>
+                <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="copyQRCode('${qrData}')">
+                    <i class="fas fa-copy"></i> Copy QR Code
+                </button>
+            </div>`;
+
+            document.getElementById('receiptContent').innerHTML = content;
+
+            // Generate actual QR code if qrcode library is available
+            if (typeof QRCode !== 'undefined') {
+                document.getElementById('qrcode').innerHTML = '';
+                new QRCode(document.getElementById('qrcode'), {
+                    text: qrData,
+                    width: 120,
+                    height: 120,
+                    colorDark: '#000000',
+                    colorLight: '#ffffff',
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+            }
+
+            new bootstrap.Modal(document.getElementById('receiptModal')).show();
+        }
+
+        function printReceipt() {
+            const printWindow = window.open('', '_blank');
+            printWindow.document.write(`
+                <html>
+                    <head>
+                        <title>${currentReceipt.title}</title>
+                        <style>
+                            body { font-family: Arial, sans-serif; max-width: 400px; margin: 0 auto; padding: 20px; }
+                            .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
+                            .item { display: flex; justify-content: space-between; margin-bottom: 8px; }
+                            .total { font-weight: bold; font-size: 1.2em; color: #d00; }
+                            .qr { text-align: center; margin-top: 20px; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="header">
+                            <h2>Smart Parking</h2>
+                            <h3>${currentReceipt.title}</h3>
+                            <p>Ticket: ${currentReceipt.ticket}</p>
+                        </div>
+                        ${document.getElementById('receiptContent').innerHTML}
+                    </body>
+                </html>
+            `);
+            printWindow.document.close();
+            printWindow.print();
+        }
+
+        function downloadPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            doc.setFontSize(20);
+            doc.text('Smart Parking Management', 20, 30);
+            doc.setFontSize(16);
+            doc.text(currentReceipt.title, 20, 50);
+            doc.setFontSize(12);
+            doc.text(`Ticket: ${currentReceipt.ticket}`, 20, 70);
+
+            let y = 90;
+            if (currentReceipt.title.includes('Allocation')) {
+                doc.text(`Slot ID: ${currentReceipt.slot_id}`, 20, y); y += 10;
+                doc.text(`Level: ${currentReceipt.level}`, 20, y); y += 10;
+                doc.text(`Section: ${currentReceipt.section.toUpperCase()}`, 20, y); y += 10;
+                doc.text(`Vehicle Type: ${currentReceipt.vehicle_type}`, 20, y); y += 10;
+                doc.text(`Customer Type: ${currentReceipt.customer_type}`, 20, y); y += 10;
+                doc.text(`EV Charging: ${currentReceipt.is_ev ? 'Yes' : 'No'}`, 20, y); y += 10;
+                doc.text(`Allocation Time: ${currentReceipt.allocation_time}`, 20, y); y += 10;
+                doc.text(`Expiry Time: ${currentReceipt.expiry_time}`, 20, y); y += 10;
+                doc.text(`Rate: ${currentReceipt.fee_rate}`, 20, y);
+            } else {
+                doc.text(`Slot ID: ${currentReceipt.slot_id}`, 20, y); y += 10;
+                doc.text(`Vehicle Type: ${currentReceipt.vehicle_type}`, 20, y); y += 10;
+                doc.text(`Customer Type: ${currentReceipt.customer_type}`, 20, y); y += 10;
+                doc.text(`Allocation Time: ${currentReceipt.allocation_time}`, 20, y); y += 10;
+                doc.text(`Release Time: ${currentReceipt.release_time}`, 20, y); y += 10;
+                doc.text(`Duration: ${currentReceipt.duration_hours} hours`, 20, y); y += 10;
+                doc.text(`Rate: ${currentReceipt.fee_rate}`, 20, y); y += 10;
+                doc.setFontSize(14);
+                doc.text(`Total Fee: ${currentReceipt.total_fee}`, 20, y + 10);
+            }
+
+            doc.save(`${currentReceipt.title.replace(/\s+/g, '_')}_${currentReceipt.ticket}.pdf`);
+        }
+
+        document.getElementById('request-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const data = {
+                vehicle_type: document.getElementById('vehicle_type').value,
+                customer_type: document.getElementById('customer_type').value,
+                license_plate: document.getElementById('license_plate').value.toUpperCase().trim(),
+                is_ev: document.getElementById('is_ev').checked
+            };
+            socket.emit('request_slot', data);
+            showMessage('Searching for available slot...', 'info');
+        });
+
+        document.getElementById('release-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const ticket = document.getElementById('ticket').value;
+            socket.emit('release_slot', { ticket: ticket });
+            showMessage('Processing release request...', 'info');
+        });
+
+        socket.on('slot_allocated', function(data) {
+            showMessage(`Slot ${data.slot_id} allocated successfully!`, 'success');
+            showReceipt(data.receipt);
+        });
+
+        socket.on('released', function(data) {
+            showMessage(`Slot released. Total fee: ${data.receipt.total_fee}`, 'success');
+            showReceipt(data.receipt);
+        });
+
+        socket.on('error', function(data) {
+            showMessage(data.message, 'danger');
+        });
+
+        socket.on('status_update', function(status) {
+            document.getElementById('total-counter').textContent = status.counters.total;
+            document.getElementById('occupied-counter').textContent = status.counters.occupied;
+            document.getElementById('available-counter').textContent = status.counters.available;
+            document.getElementById('expired-counter').textContent = status.counters.expired;
+
+            // Update rules display if rules are included
+            if (status.rules) {
+                updateRulesDisplay(status.rules);
+            }
+
+            updateVisualization(status);
+        });
+
+        function updateVisualization(status) {
+            const parkingLotDiv = document.getElementById('parking-lot');
+            parkingLotDiv.innerHTML = '';
+
+            // Define section order for better organization: Regular, VIP, EV
+            const sectionOrder = ['regular', 'vip', 'ev'];
+
+            for (const levelNum of ['1', '2']) {  // Process levels in order
+                const level = status.levels[levelNum];
+                if (!level) continue;
+
+                const levelDiv = document.createElement('div');
+                levelDiv.className = 'level-container';
+                levelDiv.innerHTML = `<h2 class="text-center mb-4"><i class="fas fa-building"></i> Level ${levelNum}</h2>`;
+
+                // Group by section first for better organization
+                for (const section of sectionOrder) {
+                    if (!level.small || !level.small[section]) continue;  // Check if section exists
+
+                    const sectionDiv = document.createElement('div');
+                    sectionDiv.className = section === 'vip' ? 'vip-section' : section === 'ev' ? 'ev-section' : 'regular-section';
+
+                    // Add section header with slot counts
+                    let totalSlots = 0, occupiedSlots = 0;
+                    ['small', 'medium', 'large'].forEach(vehicleType => {
+                        if (level[vehicleType] && level[vehicleType][section]) {
+                            const slots = level[vehicleType][section].slots;
+                            totalSlots += slots.length;
+                            occupiedSlots += slots.filter(s => s.occupied).length;
+                        }
+                    });
+
+                    sectionDiv.innerHTML = `<div class="section-header">
+                        <i class="fas fa-${section === 'vip' ? 'star' : section === 'ev' ? 'charging-station' : 'parking'}"></i>
+                        ${section.toUpperCase()} Section (${occupiedSlots}/${totalSlots} occupied)
+                    </div>`;
+
+                    // Create a container for all vehicle types in this section
+                    const vehicleContainer = document.createElement('div');
+                    vehicleContainer.className = 'd-flex flex-wrap justify-content-center gap-2';
+
+                    // Process each vehicle type
+                    ['small', 'medium', 'large'].forEach(vehicleType => {
+                        if (!level[vehicleType] || !level[vehicleType][section]) return;
+
+                        const sectionData = level[vehicleType][section];
+                        const vehicleDiv = document.createElement('div');
+                        vehicleDiv.className = 'vehicle-group mb-3';
+                        vehicleDiv.innerHTML = `<div class="text-center mb-2">
+                            <small class="text-muted fw-bold">${vehicleType.charAt(0).toUpperCase() + vehicleType.slice(1)}</small>
+                        </div>`;
+
+                        // Sort slots by ID for consistent display
+                        const sortedSlots = sectionData.slots.sort((a, b) => a.id.localeCompare(b.id));
+
+                        sortedSlots.forEach(slot => {
+                            const slotDiv = document.createElement('div');
+                            let classes = `slot ${slot.occupied ? 'occupied' : 'available'}`;
+                            if (slot.is_ev) classes += ' ev';
+
+                            slotDiv.className = classes;
+                            slotDiv.textContent = slot.id.split(/(\d+)/)[1];  // Extract number part
+
+                            let tooltip = `ID: ${slot.id}\nOccupied: ${slot.occupied}`;
+                            if (slot.is_ev) tooltip += '\nEV Charging: Yes';
+                            if (slot.ticket) {
+                                tooltip += `\nTicket: ${slot.ticket}`;
+                            }
+
+                            slotDiv.title = tooltip;
+                            vehicleDiv.appendChild(slotDiv);
+                        });
+
+                        vehicleContainer.appendChild(vehicleDiv);
+                    });
+
+                    sectionDiv.appendChild(vehicleContainer);
+                    levelDiv.appendChild(sectionDiv);
+                }
+
+                parkingLotDiv.appendChild(levelDiv);
+            }
+        }
+
+        // Initial status load
+        fetch('/api/status')
+            .then(response => response.json())
+            .then(status => {
+                document.getElementById('total-counter').textContent = status.counters.total;
+                document.getElementById('occupied-counter').textContent = status.counters.occupied;
+                document.getElementById('available-counter').textContent = status.counters.available;
+                document.getElementById('expired-counter').textContent = status.counters.expired;
+
+                // Update rules display
+                if (status.rules) {
+                    updateRulesDisplay(status.rules);
+                }
+
+                updateVisualization(status);
+            });
+
+        // Auto-refresh status every 30 seconds
+        setInterval(() => {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(status => {
+                    document.getElementById('total-counter').textContent = status.counters.total;
+                    document.getElementById('occupied-counter').textContent = status.counters.occupied;
+                    document.getElementById('available-counter').textContent = status.counters.available;
+                    document.getElementById('expired-counter').textContent = status.counters.expired;
+
+                    // Update rules display
+                    if (status.rules) {
+                        updateRulesDisplay(status.rules);
+                    }
+
+                    updateVisualization(status);
+                });
+        }, 30000);
+    </script>
+</body>
+</html>
