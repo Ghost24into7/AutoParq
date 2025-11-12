@@ -1,4 +1,4 @@
-# Parking Management System - Complete Guide
+# Parking Management System 
 
 ## Welcome to the Parking Management System!
 
